@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live GPS Tracker - Driver</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <!-- Driver View -->
+    <div id="driver-view" class="bg-gray-800 text-white flex items-center justify-center min-h-screen">
+        <div class="w-full max-w-sm bg-gray-900 rounded-2xl shadow-xl p-8 text-center">
+            <h1 class="text-3xl font-bold text-yellow-400 mb-2">Driver Mode</h1>
+            <p class="text-gray-400 mb-6">Bus ID: BUS-42</p>
+            <div class="bg-gray-700 rounded-lg p-4 mb-6">
+                <p class="text-sm font-semibold text-gray-300">STATUS</p>
+                <p id="driver-status" class="text-xl font-bold text-gray-300">Ready</p>
+            </div>
+            <div class="space-y-4">
+                <button id="start-btn" class="w-full bg-green-600 hover:bg-green-700 font-bold py-3 px-6 rounded-lg transition disabled:bg-gray-500">Start Broadcasting</button>
+                <button id="end-btn" class="w-full bg-red-600 hover:bg-red-700 font-bold py-3 px-6 rounded-lg transition disabled:bg-gray-500" disabled>End Trip</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ============== PASTE YOUR FIREBASE CONFIG HERE ==============
+        const firebaseConfig = {
+            apiKey: "AIzaSyAySXFbhyajAE7qcSyjGRcbF8jejG2GAFw",
+            authDomain: "appify-3b358.firebaseapp.com",
+            projectId: "appify-3b358",
+            storageBucket: "appify-3b358.appspot.com",
+            messagingSenderId: "1040554600495",
+            appId: "1:1040554600495:web:71afd390d47d562a333eda",
+            measurementId: "G-4WH3BW00XN"
+        };
+        // =============================================================
+
+        // --- Global Variables ---
+        const busId = "BUS-42";
+        let db, auth;
+        let watchId = null;
+
+        // --- UI Elements ---
+        const driverStatus = document.getElementById('driver-status');
+        const startBtn = document.getElementById('start-btn');
+        const endBtn = document.getElementById('end-btn');
+        
+        // --- App Initialization ---
+        async function initializeDriverApp() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                await signInAnonymously(auth);
+                console.log("Firebase Authenticated Anonymously.");
+                startBtn.disabled = false; // Enable button after successful init
+            } catch (error) {
+                console.error("CRITICAL: Firebase Init or Auth Failed!", error);
+                driverStatus.textContent = "Connection Failed";
+                alert("Could not connect to the service. Please check the console for errors.");
+            }
+        }
+
+        // --- Driver Logic ---
+        startBtn.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                driverStatus.textContent = 'Geolocation not supported';
+                return;
+            }
+            const options = { enableHighAccuracy: true };
+            watchId = navigator.geolocation.watchPosition(updateLocationInFirestore, handleLocationError, options);
+            driverStatus.textContent = 'Acquiring Location...';
+            startBtn.disabled = true;
+            endBtn.disabled = false;
+        });
+
+        endBtn.addEventListener('click', async () => {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            driverStatus.textContent = 'Trip Ended';
+            startBtn.disabled = false;
+            endBtn.disabled = true;
+            try {
+                await setDoc(doc(db, "buses", busId), { status: 'offline' }, { merge: true });
+            } catch (error) {
+                console.error("Error ending trip:", error);
+            }
+        });
+
+        async function updateLocationInFirestore(position) {
+            const { latitude, longitude } = position.coords;
+            driverStatus.textContent = 'Broadcasting...';
+            try {
+                const busRef = doc(db, "buses", busId);
+                await setDoc(busRef, {
+                    lat: latitude,
+                    lng: longitude,
+                    status: 'en-route',
+                    lastUpdate: serverTimestamp()
+                });
+                console.log("Location updated:", { latitude, longitude });
+            } catch (error) {
+                console.error("Firestore Write Error:", error);
+                driverStatus.textContent = 'Firestore Update Failed';
+            }
+        }
+
+        function handleLocationError(error) {
+            console.error("Geolocation Error:", error.message);
+            driverStatus.textContent = 'Location Error';
+        }
+
+        // --- Initialize the app ---
+        initializeDriverApp();
+    </script>
+</body>
+</html>
